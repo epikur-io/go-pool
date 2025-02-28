@@ -1,6 +1,6 @@
 # A generic pool implementation in Go
 
-This pool is designed to hold large objects like for example Lua oder Javascript VMs.
+This pool is designed to hold large reusable objects like for example Lua oder Javascript VMs.
 
 ## Example:
 
