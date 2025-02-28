@@ -33,19 +33,19 @@ func main() {
 	// get an entry or timeout after 1 second:
 	entry, err := pool.AcquireWithTimeout(time.Second * 1)
 	if err != nil {
-		log.Println("error:", err)
-	} else {
-		// call some lua function
-		entry.DoString(luaCode)
-		if err := entry.CallByParam(lua.P{
-			Fn:      entry.GetGlobal("some_global_function"),
-			NRet:    1,
-			Protect: true,
-		}, lua.LString("epikur")); err != nil {
-			panic(err)
-		}
-
-		// release a new entry to te pool and drop the old one
-		pool.Release(nil)
+		log.Fatalln("error:", err)
 	}
+
+	// call some lua function
+	entry.DoString(luaCode)
+	if err := entry.CallByParam(lua.P{
+		Fn:      entry.GetGlobal("some_global_function"),
+		NRet:    1,
+		Protect: true,
+	}, lua.LString("epikur")); err != nil {
+		panic(err)
+	}
+
+	// release a new entry to te pool and drop the old one
+	pool.Release(nil)
 }

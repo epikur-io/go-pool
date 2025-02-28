@@ -30,11 +30,11 @@ func main() {
 	// get an entry or timeout after 1 second:
 	entry, err := pool.AcquireWithTimeout(time.Second * 1)
 	if err != nil {
-		log.Println("error:", err)
-	} else {
-		entry.DoSomeWork()
-
-		// release entry
-		pool.Release(entry)
+		log.Fatalln("error:", err)
 	}
+
+	entry.DoSomeWork()
+
+	// release entry
+	pool.Release(entry)
 }
