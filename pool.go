@@ -38,7 +38,7 @@ func NewPool[T any](size int, factoryFunc func() *T) *Pool[T] {
 	if factoryFunc == nil {
 		panic(ErrMissingFactoryFunction)
 	}
-	lp := &Pool[T]{size: size, creator: factoryFunc}
+	lp := &Pool[T]{size: size, factoryFunc: factoryFunc}
 	lp.init()
 	return lp
 }
@@ -47,9 +47,9 @@ type Pool[T any] struct {
 	// size of the pool
 	size int
 	// factory function to fill the pool
-	creator func() *T
-	pool    chan *T
-	mux     sync.Mutex
+	factoryFunc func() *T
+	pool        chan *T
+	mux         sync.Mutex
 }
 
 func (p *Pool[T]) init() {
@@ -57,7 +57,7 @@ func (p *Pool[T]) init() {
 	p.pool = make(chan *T, p.size)
 	// fill the pool
 	for i := 0; i < p.size; i++ {
-		p.pool <- p.creator()
+		p.pool <- p.factoryFunc()
 	}
 }
 
@@ -81,7 +81,7 @@ func (p *Pool[T]) Channel() chan *T {
 }
 
 func (p *Pool[T]) FactoryFunc() func() *T {
-	return p.creator
+	return p.factoryFunc
 }
 
 func (p *Pool[T]) AcquireWithTimeout(to time.Duration) (*T, error) {
@@ -115,7 +115,7 @@ func (p *Pool[T]) Acquire() *T {
 // if v is nil a new type gets created on the fly
 func (p *Pool[T]) Release(v *T) {
 	if v == nil {
-		p.pool <- p.creator()
+		p.pool <- p.factoryFunc()
 		return
 	}
 	p.pool <- v
@@ -125,7 +125,7 @@ func (p *Pool[T]) Release(v *T) {
 // if v is nil a new entry gets created on the fly
 func (p *Pool[T]) TryRelease(v *T) error {
 	if v == nil {
-		v = p.creator()
+		v = p.factoryFunc()
 	}
 	select {
 	case p.pool <- v:
@@ -142,7 +142,7 @@ func (p *Pool[T]) TryReleaseWithContext(ctx context.Context, v *T) error {
 		ctx = context.Background()
 	}
 	if v == nil {
-		v = p.creator()
+		v = p.factoryFunc()
 	}
 	select {
 	case p.pool <- v:
