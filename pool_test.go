@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -55,7 +56,18 @@ func TestUpdate(t *testing.T) {
 		}
 	}()
 	start := time.Now()
-	pool.Update()
+	pool.LockedRun(func(p *Pool[poolItem]) error {
+		for i := 0; i < p.Cap(); i++ {
+			// empty the Pool
+			p.Acquire()
+		}
+		for i := 0; i < p.Cap(); i++ {
+			// fill the Pool
+			p.Release(nil)
+		}
+
+		return nil
+	})
 	duration := time.Since(start)
 
 	if duration < delay {
@@ -70,7 +82,35 @@ func TestUpdateTimeout(t *testing.T) {
 	for range 3 {
 		pool.Acquire()
 	}
-	removedInstances, updatedInstances := pool.UpdateWithTimeout(1 * time.Second)
+
+	removedInstances := 0
+	updatedInstances := 0
+
+	tc := time.After(1 * time.Second)
+	pool.LockedRun(func(p *Pool[poolItem]) error {
+		for i := 0; i < p.Cap(); i++ {
+			// empty the Pool
+			select {
+			case <-p.Channel():
+				removedInstances++
+			case <-tc:
+				return fmt.Errorf("timeout")
+			}
+		}
+		factoryFunc := p.FactoryFunc()
+		for i := 0; i < p.Cap(); i++ {
+			// fill the Pool
+			select {
+			case p.Channel() <- factoryFunc():
+				updatedInstances++
+			case <-tc:
+				return fmt.Errorf("timeout")
+			}
+		}
+
+		return nil
+	})
+
 	if removedInstances != 0 {
 		t.Errorf("expected %d removed instances but got %d", pool.Len(), removedInstances)
 	}

@@ -19,14 +19,15 @@ var (
 type IPool[T any] interface {
 	Len() int
 	Cap() int
-	Update()
-	UpdateWithTimeout(time.Duration) (int, int)
 	Acquire() *T
 	AcquireWithTimeout(time.Duration) (*T, error)
 	AcquireWithContext(context.Context) (*T, error)
 	Release(*T)
 	TryRelease(*T) error
 	TryReleaseWithContext(context.Context, *T) error
+	LockedRun(func(p *Pool[T]) error) error
+	Channel() chan *T
+	FactoryFunc() func() *T
 }
 
 var _ IPool[any] = &Pool[any]{}
@@ -68,51 +69,19 @@ func (p *Pool[T]) Cap() int {
 	return cap(p.pool)
 }
 
-// Updates the pool and fills it with fresh newly instantiated entries
-func (p *Pool[T]) Update() {
-	// Make sure the pool is empty so we don't miss a entry because
-	// it was acquired by an other function
-	// So this loop can take a while if some entries are already acquired and busy.
+// Acquires a lock and  executes function f
+func (p *Pool[T]) LockedRun(f func(p *Pool[T]) error) error {
 	p.mux.Lock()
 	defer p.mux.Unlock()
-
-	for i := 0; i < cap(p.pool); i++ {
-		// empty the Pool
-		<-p.pool
-	}
-	for i := 0; i < cap(p.pool); i++ {
-		// fill the Pool
-		p.pool <- p.creator()
-	}
+	return f(p)
 }
 
-// Updates the pool and fills it with fresh newly instantiated entries or thows a timout error
-// this can leave the pool not or only partially filled. Use it with caution!
-func (p *Pool[T]) UpdateWithTimeout(to time.Duration) (removedInstanceCount int, newInstanceCount int) {
-	p.mux.Lock()
-	defer p.mux.Unlock()
+func (p *Pool[T]) Channel() chan *T {
+	return p.pool
+}
 
-	c := time.After(to)
-	for i := 0; i < cap(p.pool); i++ {
-		// try to empty the Pool
-		select {
-		case <-p.pool:
-			removedInstanceCount++
-		case <-c:
-			return
-		}
-	}
-	for i := 0; i < cap(p.pool); i++ {
-		// try to fill the Pool
-		select {
-		case p.pool <- p.creator():
-			newInstanceCount++
-		case <-c:
-			return
-		}
-
-	}
-	return
+func (p *Pool[T]) FactoryFunc() func() *T {
+	return p.creator
 }
 
 func (p *Pool[T]) AcquireWithTimeout(to time.Duration) (*T, error) {
