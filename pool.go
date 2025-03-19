@@ -115,8 +115,7 @@ func (p *Pool[T]) Acquire() *T {
 // if v is nil a new type gets created on the fly
 func (p *Pool[T]) Release(v *T) {
 	if v == nil {
-		p.pool <- p.factoryFunc()
-		return
+		v = p.factoryFunc()
 	}
 	p.pool <- v
 }
