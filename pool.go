@@ -84,6 +84,24 @@ func (p *Pool[T]) FactoryFunc() func() *T {
 	return p.factoryFunc
 }
 
+func (p *Pool[T]) Run(fn func(e *T) error) error {
+	e := p.Acquire()
+	defer p.Release(nil)
+	return fn(e)
+}
+
+func (p *Pool[T]) RunWithContext(ctx context.Context, fn func(ctx context.Context, e *T) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	e, err := p.AcquireWithContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer p.Release(nil)
+	return fn(ctx, e)
+}
+
 func (p *Pool[T]) AcquireWithTimeout(to time.Duration) (*T, error) {
 	c := time.After(to)
 	select {

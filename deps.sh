@@ -6,5 +6,4 @@ if [[ ":$PATH:" != *":$GO_BIN_PATH:"* ]]; then
   exit 1
 fi
 
-go install github.com/go-task/task/v3/cmd/task@v3.41.0
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.6
+go install github.com/go-task/task/v3/cmd/task@latest

@@ -116,8 +116,8 @@ func TestTryReleaseWithContext(t *testing.T) {
 
 	entry := pool.Acquire()
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-	cancel()
 	err = pool.TryReleaseWithContext(ctx, entry)
+	cancel()
 	if err != nil {
 		t.Errorf("unexpected error: %e", err)
 	}

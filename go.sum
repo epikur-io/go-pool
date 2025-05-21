@@ -1,2 +1,2 @@
-github.com/yuin/gopher-lua v1.1.1 h1:kYKnWBjvbNP4XLT3+bPEwAXJx262OhaHDWDVOPjL46M=
-github.com/yuin/gopher-lua v1.1.1/go.mod h1:GBR0iDaNXjAgGg9zfCvksxSRnQx76gclCIb7kdAd1Pw=
+github.com/epikur-io/gopher-lua v1.2.1 h1:hNc4JrUQJmHxsIqKNo4NNKT1vs4lNHLBm36o00pO/eA=
+github.com/epikur-io/gopher-lua v1.2.1/go.mod h1:tSWAQSkm6ZTAQas0O28SaO1PwQkm1v9l41kmgCXUM2E=
