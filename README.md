@@ -1,8 +1,32 @@
-# A generic pool implementation in Go
+# go-pool - A generic pool implementation in Go
 
-This pool is designed to hold large reusable objects like for example Lua oder Javascript VMs.
+*A lightweight, generic object pool implementation in Go*
 
-## Example:
+[![Go Reference](https://pkg.go.dev/badge/github.com/epikur-io/go-pool.svg)](https://pkg.go.dev/github.com/epikur-io/go-pool)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+## Overview
+
+`go-pool` is a generic, efficient object pool for Go designed to manage reusable, expensive-to-create objects such as virtual machines, interpreters, or database connections.
+
+Instead of repeatedly allocating and destroying large objects, you can use this pool to **acquire**, **reuse**, and **release** instances safely and efficiently.
+
+## Features
+
+- Generic API – works with any object type
+- Optimized for performance and low contention
+- Simple, idiomatic interface
+- Supports timeouts for acquiring objects
+- Optional helper for automatic acquire/release management
+
+## Use Cases
+
+- Embedding scripting engines (Lua, JS, etc.)
+- Managing reusable network connections or sessions
+- Pooling pre-initialized workers or buffers
+- Any case where object creation is expensive
+
+## Usage Example
 
 ```go
 package main
