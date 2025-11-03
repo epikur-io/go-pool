@@ -33,7 +33,7 @@ func main() {
 	pool.Release(entry)
 
 	wg := sync.WaitGroup{}
-	for i := range 200000 {
+	for i := range 2000 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
