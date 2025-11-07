@@ -66,13 +66,7 @@ func main() {
 
 	entry.DoSomeWork()
 
-	// release entry
-	pool.Release(entry)
-
-	// or use function wrapper to automatically acquire and release entry
-	err := pool.Run(func(entry *PoolEntry) error {
-		entry.DoSomeWork()
-		return nil
-	})
+	// release entry, since entry is nil, a new entry will be created and put into the pool
+	pool.Release(nil)
 }
 ```

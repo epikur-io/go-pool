@@ -35,6 +35,6 @@ func main() {
 
 	entry.DoSomeWork()
 
-	// release entry
-	pool.Release(entry)
+	// release entry, since entry is nil, a new entry will be created and put into the pool
+	pool.Release(nil)
 }
