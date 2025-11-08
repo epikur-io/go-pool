@@ -16,7 +16,7 @@ var (
 
 // Generic pool implementation
 
-type IPool[T any] interface {
+type Pooler[T any] interface {
 	Len() int
 	Cap() int
 	Acquire() *T
@@ -30,7 +30,7 @@ type IPool[T any] interface {
 	FactoryFunc() func() *T
 }
 
-var _ IPool[any] = &Pool[any]{}
+var _ Pooler[any] = &Pool[any]{}
 
 // Creates a new pool with the given size/capacity
 // factoryFunc returns the the type the pool should hold must be provided or else the call will panic
