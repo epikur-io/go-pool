@@ -52,21 +52,22 @@ func main() {
 	pool := pool.NewPool(10, factory)
 
 	// get an entry:
-	entry := pool.Acquire()
-	entry.DoSomeWork()
-
-	// release entry
-	pool.Release(entry)
-
-	// get an entry or timeout after 1 second:
-	entry, err := pool.AcquireWithTimeout(time.Second * 1)
-	if err != nil {
-		log.Fatalln("error:", err)
+	{
+		entry := pool.Acquire()
+		// release entry
+		defer pool.Release(entry)
+		entry.DoSomeWork()
 	}
-
-	entry.DoSomeWork()
-
-	// release entry, since entry is nil, a new entry will be created and put into the pool
-	pool.Release(nil)
+	{
+		// get an entry or timeout after 1 second:
+		entry, err := pool.AcquireWithTimeout(time.Second * 1)
+		// release entry, since entry is nil, a new entry will be created and put into the pool
+		defer pool.Release(nil)
+		entry.DoSomeWork()
+		if err != nil {
+			log.Fatalln("error:", err)
+		}
+	}
 }
+
 ```
