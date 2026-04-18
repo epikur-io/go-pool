@@ -13,8 +13,10 @@ import (
 var luaCode = `
 	print("Hello world!")
 
-	function some_global_function(name)
-		print("Hello:", name)
+	function greet(name)
+		local greeting = "Hello: " .. name
+		print(greeting)
+		return greeting
 	end
 `
 
@@ -23,7 +25,7 @@ func main() {
 		lvm := lua.NewState()
 		return lvm
 	}
-	pool := pool.NewPool(5000, factory)
+	pool := pool.NewPool(2000, factory)
 
 	// get an entry:
 	entry := pool.Acquire()
@@ -47,7 +49,7 @@ func main() {
 			// call some lua function
 			entry.DoString(luaCode)
 			if err := entry.CallByParam(lua.P{
-				Fn:      entry.GetGlobal("some_global_function"),
+				Fn:      entry.GetGlobal("greet"),
 				NRet:    1,
 				Protect: true,
 			}, lua.LString("epikur #"+fmt.Sprint(i))); err != nil {
