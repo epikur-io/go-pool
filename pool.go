@@ -163,6 +163,9 @@ func (p *Pool[T]) TryReleaseWithContext(ctx context.Context, v *T) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	select {
 	case <-p.closed:
 		p.closeItem(v)
