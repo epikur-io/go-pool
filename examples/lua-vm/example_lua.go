@@ -28,7 +28,10 @@ func main() {
 	pool := pool.NewPool(2000, factory)
 
 	// get an entry:
-	entry := pool.Acquire()
+	entry, err := pool.Acquire()
+	if err != nil {
+		log.Fatalln("failed to acquire entry from pool")
+	}
 	entry.DoString(luaCode)
 
 	// release entry

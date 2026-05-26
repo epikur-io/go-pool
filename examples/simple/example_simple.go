@@ -24,7 +24,10 @@ func main() {
 
 	// get an entry:
 	{
-		entry := pool.Acquire()
+		entry, err := pool.Acquire()
+		if err != nil {
+			log.Fatalln("failed to acquire entry from pool")
+		}
 		// release entry
 		defer pool.Release(entry)
 		entry.DoSomeWork("A")

@@ -2,205 +2,205 @@ package pool
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-type poolItem any
-
-func poolFactory() *poolItem {
-	return nil
+func newIntPool(size int) *Pool[int] {
+	n := 0
+	return NewPool(size, func() *int {
+		n++
+		v := n
+		return &v
+	})
 }
 
-func TestFactoryFunc(t *testing.T) {
-	pool := NewPool(2, poolFactory)
-	if pool.FactoryFunc() == nil {
-		t.Errorf("missing factory function")
-	}
-}
+func TestAcquireRelease(t *testing.T) {
+	p := newIntPool(2)
+	defer p.Close()
 
-func TestAqcuireAndRelease(t *testing.T) {
-	pool := NewPool(2, poolFactory)
-	entries := []*poolItem{}
-	for range 2 {
-		entry := pool.Acquire()
-		entries = append(entries, entry)
+	v, err := p.Acquire()
+	if err != nil || v == nil {
+		t.Fatalf("Acquire() = %v, %v; want non-nil, nil", v, err)
 	}
-
-	plen := pool.Len()
-	if plen != 0 {
-		t.Errorf("pool expected to be empty but %d instances remained", plen)
+	if p.Len() != 1 {
+		t.Fatalf("Len() = %d; want 1", p.Len())
 	}
-
-	// should timeout since pool is now empty
-	_, err := pool.AcquireWithTimeout(1 * time.Second)
-	if err == nil {
-		t.Errorf("expected timout error but got %v", err)
+	if err := p.Release(v); err != nil {
+		t.Fatalf("Release() = %v; want nil", err)
 	}
-
-	for _, entry := range entries {
-		pool.Release(entry)
-	}
-
-	plen = pool.Len()
-	if plen != 2 {
-		t.Errorf("pool expected to be full but got %d instances", plen)
-	}
-
-	_, err = pool.AcquireWithTimeout(1 * time.Second)
-	if err != nil {
-		t.Errorf("unexpected error: %e", err)
+	if p.Len() != 2 {
+		t.Fatalf("Len() = %d; want 2", p.Len())
 	}
 }
 
-func TestAqcuireAndReleaseWithContext(t *testing.T) {
-	pool := NewPool(2, poolFactory)
-	entries := []*poolItem{}
-	for range 2 {
-		entry := pool.Acquire()
-		entries = append(entries, entry)
-	}
+func TestReleaseNilReturnsError(t *testing.T) {
+	p := newIntPool(2)
+	defer p.Close()
 
-	plen := pool.Len()
-	if plen != 0 {
-		t.Errorf("pool expected to be empty but %d instances remained", plen)
-	}
-
-	// should timeout since pool is now empty
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	_, err := pool.AcquireWithContext(ctx)
-	cancel()
-	if err == nil {
-		t.Errorf("expected timout error but got %v", err)
-	}
-	for _, entry := range entries {
-		pool.Release(entry)
-	}
-
-	plen = pool.Len()
-	if plen != 2 {
-		t.Errorf("pool expected to be full but got %d instances", plen)
-	}
-
-	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-	_, err = pool.AcquireWithContext(ctx)
-	cancel()
-	if err != nil {
-		t.Errorf("unexpected error: %e", err)
+	if err := p.Release(nil); err == nil {
+		t.Fatal("Release(nil) should return an error")
 	}
 }
 
-func TestTryRelease(t *testing.T) {
-	pool := NewPool(2, poolFactory)
-	err := pool.TryRelease(nil)
-	if err == nil {
-		t.Errorf("error expected but got %v", err)
-	}
+func TestRun_HealthyItemReturned(t *testing.T) {
+	p := newIntPool(1)
+	defer p.Close()
 
-	entry := pool.Acquire()
-	err = pool.TryRelease(entry)
-	if err != nil {
-		t.Errorf("unexpected error: %e", err)
-	}
-}
-func TestTryReleaseWithContext(t *testing.T) {
-	pool := NewPool(2, poolFactory)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	err := pool.TryReleaseWithContext(ctx, nil)
-	cancel()
-	if err == nil {
-		t.Errorf("error expected but got %v", err)
-	}
-
-	entry := pool.Acquire()
-	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-	err = pool.TryReleaseWithContext(ctx, entry)
-	cancel()
-	if err != nil {
-		t.Errorf("unexpected error: %e", err)
-	}
-}
-
-func TestUpdate(t *testing.T) {
-	pool := NewPool(2, poolFactory)
-	entries := []*poolItem{}
-	for range 2 {
-		entry := pool.Acquire()
-		entries = append(entries, entry)
-	}
-	delay := 1 * time.Second
-	go func() {
-		time.Sleep(delay)
-		for _, entry := range entries {
-			pool.Release(entry)
-		}
-	}()
-	start := time.Now()
-	if err := pool.LockedRun(func(p *Pool[poolItem]) error {
-		for i := 0; i < p.Cap(); i++ {
-			// empty the Pool
-			p.Acquire()
-		}
-		for i := 0; i < p.Cap(); i++ {
-			// fill the Pool
-			p.Release(nil)
-		}
-
+	var seen *int
+	err := p.Run(func(v *int) error {
+		seen = v
 		return nil
-	}); err != nil {
-		t.Error(err)
+	})
+	if err != nil {
+		t.Fatalf("Run() = %v; want nil", err)
 	}
-	duration := time.Since(start)
-
-	if duration < delay {
-		// check if channel was blocking
-		t.Errorf("expected pool to block for 1 second but got %v", duration)
+	if p.Len() != 1 {
+		t.Fatalf("pool should be full after Run; Len() = %d", p.Len())
 	}
 
+	// The exact same pointer should be back in the
+	v, _ := p.Acquire()
+	if v != seen {
+		t.Fatal("Run() did not return the original item to the pool")
+	}
 }
 
-func TestUpdateTimeout(t *testing.T) {
-	pool := NewPool(3, poolFactory)
-	for range 3 {
-		pool.Acquire()
+func TestRun_BrokenItemReplaced(t *testing.T) {
+	created := 0
+	p := NewPool(1, func() *int {
+		created++
+		v := created
+		return &v
+	})
+	defer p.Close()
+
+	_ = p.Run(func(v *int) error {
+		return errors.New("something broke")
+	})
+
+	if created != 2 {
+		t.Fatalf("expected 2 items created (1 initial + 1 replacement), got %d", created)
 	}
+	if p.Len() != 1 {
+		t.Fatalf("pool should still be full after failed Run; Len() = %d", p.Len())
+	}
+}
 
-	removedInstances := 0
-	updatedInstances := 0
+func TestAcquireWithContext_AlreadyCancelled(t *testing.T) {
+	p := newIntPool(1)
+	defer p.Close()
 
-	tc := time.After(1 * time.Second)
-	if err := pool.LockedRun(func(p *Pool[poolItem]) error {
-		for i := 0; i < p.Cap(); i++ {
-			// empty the Pool
-			select {
-			case <-p.Channel():
-				removedInstances++
-			case <-tc:
-				return fmt.Errorf("timeout")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before acquire
+
+	v, err := p.AcquireWithContext(ctx)
+	if v != nil || err == nil {
+		t.Fatalf("expected error from pre-cancelled ctx, got v=%v err=%v", v, err)
+	}
+}
+
+func TestAcquireWithTimeout_Expires(t *testing.T) {
+	p := newIntPool(1)
+	defer p.Close()
+
+	// Exhaust the
+	_, _ = p.Acquire()
+
+	_, err := p.AcquireWithTimeout(20 * time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+func TestReplace(t *testing.T) {
+	created := 0
+	p := NewPool(1, func() *int {
+		created++
+		v := created
+		return &v
+	})
+	defer p.Close()
+
+	v, _ := p.Acquire()
+	if err := p.Replace(v); err != nil {
+		t.Fatalf("Replace() = %v; want nil", err)
+	}
+	if created != 2 {
+		t.Fatalf("expected 2 items after Replace, got %d", created)
+	}
+	if p.Len() != 1 {
+		t.Fatalf("Len() = %d; want 1", p.Len())
+	}
+}
+
+func TestClose_IdempotentAndBlocksAcquire(t *testing.T) {
+	p := newIntPool(2)
+	p.Close()
+	p.Close() // must not panic
+
+	_, err := p.Acquire()
+	if err != ErrPoolClosed {
+		t.Fatalf("Acquire on closed pool = %v; want ErrPoolClosed", err)
+	}
+}
+
+func TestClose_CallsCloseFunc(t *testing.T) {
+	closed := 0
+	p := NewPool(3, func() *int {
+		v := 0
+		return &v
+	}, Options[int]{
+		CloseFunc: func(v *int) { closed++ },
+	})
+	p.Close()
+	if closed != 3 {
+		t.Fatalf("CloseFunc called %d times; want 3", closed)
+	}
+}
+
+func TestConcurrentStress(t *testing.T) {
+	const goroutines = 100
+	const iters = 200
+
+	p := newIntPool(10)
+	defer p.Close()
+
+	var wg sync.WaitGroup
+	var errs atomic.Int64
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iters; j++ {
+				if err := p.Run(func(v *int) error { return nil }); err != nil {
+					errs.Add(1)
+				}
 			}
-		}
-		factoryFunc := p.FactoryFunc()
-		for i := 0; i < p.Cap(); i++ {
-			// fill the Pool
-			select {
-			case p.Channel() <- factoryFunc():
-				updatedInstances++
-			case <-tc:
-				return fmt.Errorf("timeout")
-			}
-		}
-
-		return nil
-	}); err == nil {
-		t.Errorf("error expected but got %v", err)
+		}()
 	}
 
-	if removedInstances != 0 {
-		t.Errorf("expected %d removed instances but got %d", pool.Len(), removedInstances)
+	wg.Wait()
+	if errs.Load() != 0 {
+		t.Fatalf("%d errors during stress test", errs.Load())
 	}
-	if updatedInstances != 0 {
-		t.Errorf("expected %d updated instances but got %d", pool.Len(), updatedInstances)
+	if p.Len() != p.Cap() {
+		t.Fatalf("pool not fully returned after stress: Len=%d Cap=%d", p.Len(), p.Cap())
 	}
+}
+
+func BenchmarkPool_Run(b *testing.B) {
+	p := newIntPool(8)
+	defer p.Close()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = p.Run(func(v *int) error { return nil })
+		}
+	})
 }
