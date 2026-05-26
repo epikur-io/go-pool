@@ -48,6 +48,7 @@ func main() {
 				log.Printf("error acquiring from pool (#%d): %s", i, err)
 				return
 			}
+			defer pool.Replace(nil)
 
 			// call some lua function
 			entry.DoString(luaCode)
@@ -61,7 +62,6 @@ func main() {
 
 			// release a new entry to te pool and drop the old one
 			fmt.Printf("## Finished iteration #%d\n", i)
-			pool.Release(nil)
 		}()
 	}
 	wg.Wait()

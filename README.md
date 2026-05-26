@@ -69,7 +69,7 @@ func main() {
 		defer cancel()
 		entry, err := pool.AcquireWithContext(ctx)
 		// release entry, since entry is nil, a new entry will be created and put into the pool
-		defer pool.Release(nil)
+		defer pool.Replace(nil)
 		entry.DoSomeWork("B")
 		if err != nil {
 			log.Fatalln("error:", err)
