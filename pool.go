@@ -24,6 +24,7 @@ type Pooler[T any] interface {
 	AcquireWithContext(context.Context) (*T, error)
 
 	Release(*T) error
+	ReleaseWithContext(context.Context, *T) error
 	TryRelease(*T) error
 	TryReleaseWithContext(context.Context, *T) error
 
@@ -57,7 +58,17 @@ type Options[T any] struct {
 }
 
 // NewPool creates a new pool of size cap, filling it eagerly via factoryFunc.
-// Panics if factoryFunc is nil or size < 1.
+// Panics if factoryFunc is nil, size < 1, or factoryFunc returns nil.
+//
+// Pool lifecycle:
+//   - Created via NewPool (pre-populated with items).
+//   - Used via Acquire/Release cycles.
+//   - Closed via Close (idempotent, safe to call multiple times).
+//
+// After Close:
+//   - All Acquire calls return ErrPoolClosed.
+//   - Release/Replace calls close the item and return ErrPoolClosed.
+//   - Items in-flight at close time are closed when next returned to the pool.
 func NewPool[T any](size int, factoryFunc func() *T, opts ...Options[T]) *Pool[T] {
 	if factoryFunc == nil {
 		panic(ErrMissingFactoryFunction)
@@ -77,20 +88,21 @@ func NewPool[T any](size int, factoryFunc func() *T, opts ...Options[T]) *Pool[T
 	}
 
 	for i := 0; i < size; i++ {
-		p.pool <- factoryFunc()
+		item := factoryFunc()
+		if item == nil {
+			panic("pool: factory function returned nil")
+		}
+		p.pool <- item
 	}
 	return p
 }
 
-// ─── observability ────────────────────────────────────────────────────────────
-
-// Len returns the number of items currently idle in the pool.
+// Len returns the approximate number of items currently idle in the pool.
+// The value may be stale by the time it is read; treat it as a hint only.
 func (p *Pool[T]) Len() int { return len(p.pool) }
 
 // Cap returns the maximum pool capacity.
 func (p *Pool[T]) Cap() int { return cap(p.pool) }
-
-// ─── acquire ──────────────────────────────────────────────────────────────────
 
 // Acquire blocks until an item is available or the pool is closed.
 func (p *Pool[T]) Acquire() (*T, error) {
@@ -125,6 +137,8 @@ func (p *Pool[T]) AcquireWithContext(ctx context.Context) (*T, error) {
 	}
 }
 
+// Release returns a healthy item to the pool. v must not be nil; use Replace
+// to handle a broken item.
 func (p *Pool[T]) Release(v *T) error {
 	if v == nil {
 		return ErrNilItem
@@ -133,6 +147,30 @@ func (p *Pool[T]) Release(v *T) error {
 	case <-p.closed:
 		p.closeItem(v)
 		return ErrPoolClosed
+	case p.pool <- v:
+		return nil
+	}
+}
+
+// ReleaseWithContext returns a healthy item to the pool, blocking until space
+// is available, the context is cancelled, or the pool is closed.
+// The context is checked eagerly so a pre-cancelled context never blocks.
+func (p *Pool[T]) ReleaseWithContext(ctx context.Context, v *T) error {
+	if v == nil {
+		return ErrNilItem
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case <-p.closed:
+		p.closeItem(v)
+		return ErrPoolClosed
+	case <-ctx.Done():
+		return ctx.Err()
 	case p.pool <- v:
 		return nil
 	}
@@ -156,6 +194,9 @@ func (p *Pool[T]) TryRelease(v *T) error {
 }
 
 // TryReleaseWithContext is a non-blocking Release that also respects ctx.
+// The context is checked eagerly; the select's default branch means ctx.Done()
+// inside the select would be unreachable anyway (a full channel hits default
+// before ctx.Done() is evaluated).
 func (p *Pool[T]) TryReleaseWithContext(ctx context.Context, v *T) error {
 	if v == nil {
 		return ErrNilItem
@@ -172,8 +213,6 @@ func (p *Pool[T]) TryReleaseWithContext(ctx context.Context, v *T) error {
 		return ErrPoolClosed
 	case p.pool <- v:
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	default:
 		return ErrFailedToRelease
 	}
@@ -185,6 +224,9 @@ func (p *Pool[T]) TryReleaseWithContext(ctx context.Context, v *T) error {
 func (p *Pool[T]) Replace(v *T) error {
 	p.closeItem(v) // safe with nil
 	fresh := p.factoryFunc()
+	if fresh == nil {
+		panic("pool: factory function returned nil during Replace")
+	}
 	select {
 	case <-p.closed:
 		p.closeItem(fresh)
@@ -193,8 +235,6 @@ func (p *Pool[T]) Replace(v *T) error {
 		return nil
 	}
 }
-
-// ─── run helpers ─────────────────────────────────────────────────────────────
 
 // Run acquires an item, calls fn, then returns or replaces it depending on
 // whether fn returned an error.
@@ -205,6 +245,8 @@ func (p *Pool[T]) Run(fn func(*T) error) error {
 }
 
 // RunWithContext is like Run but propagates ctx to both acquisition and fn.
+// ctx is checked eagerly for consistency; AcquireWithContext would catch it
+// anyway, but this makes the early-exit behaviour obvious without tracing deeper.
 func (p *Pool[T]) RunWithContext(ctx context.Context, fn func(context.Context, *T) error) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -217,7 +259,11 @@ func (p *Pool[T]) RunWithContext(ctx context.Context, fn func(context.Context, *
 	fnErr := fn(ctx, v)
 	if fnErr != nil {
 		// Item may be in a bad state; replace it rather than returning it.
-		_ = p.Replace(v)
+		// If Replace fails (pool already closed), close the item directly so
+		// it is not leaked — the primary fnErr is still what we return.
+		if replaceErr := p.Replace(v); replaceErr != nil {
+			p.closeItem(v)
+		}
 		return fnErr
 	}
 
